@@ -87,6 +87,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
   const handleEdit = () => {
     setIsEditing(true);
+    setContextMenu(null);
     setTimeout(() => editInputRef.current?.focus(), 0);
   };
 
@@ -100,6 +101,25 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   const handleCancelEdit = () => {
     setEditValue(node.name);
     setIsEditing(false);
+  };
+
+  const handleAddChildFromMenu = () => {
+    const name = prompt('Enter task name:');
+    if (name?.trim()) {
+      onAddChild(node.id, name.trim());
+      // Expand the parent node to show the new child
+      if (!isExpanded) {
+        onToggleExpanded(node.id);
+      }
+    }
+    setContextMenu(null);
+  };
+
+  const handleDeleteFromMenu = () => {
+    if (confirm(`Delete "${node.name}" and all subtasks?`)) {
+      onDelete(node.id);
+    }
+    setContextMenu(null);
   };
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -318,7 +338,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         </div>
       </div>
 
-      {/* Context Menu */}
+      {/* Context Menu - FIXED VERSION */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -329,13 +349,52 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           }}
         >
           <button
-            className="w-full px-3 py-2 text-left text-sm hover:bg-red-100 flex items-center gap-2 text-red-600"
+            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+            onClick={handleAddChildFromMenu}
+          >
+            <Plus className="w-4 h-4" />
+            Add Child
+          </button>
+          
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+            onClick={handleEdit}
+          >
+            <Edit2 className="w-4 h-4" />
+            Edit
+          </button>
+          
+          <div className="border-t border-gray-200 my-1"></div>
+          
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
             onClick={() => {
-              if (confirm(`Delete "${node.name}" and all subtasks?`)) {
-                onDelete(node.id);
-              }
+              onCopy(node.id);
               setContextMenu(null);
             }}
+          >
+            <Copy className="w-4 h-4" />
+            Copy
+          </button>
+          
+          {clipboard && (
+            <button
+              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+              onClick={() => {
+                onPaste(node.id);
+                setContextMenu(null);
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Paste Here
+            </button>
+          )}
+          
+          <div className="border-t border-gray-200 my-1"></div>
+          
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-red-100 flex items-center gap-2 text-red-600"
+            onClick={handleDeleteFromMenu}
           >
             <Trash2 className="w-4 h-4" />
             Delete
