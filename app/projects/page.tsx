@@ -46,11 +46,11 @@ export default async function ProjectsPage() {
                 {project.status}
               </span>
             </div>
-            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+            {/* <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
               <span>ID: {project.id}</span>
               <span>Created: {new Date(project.createdAt).toLocaleDateString()}</span>
               <span>Updated: {new Date(project.updatedAt).toLocaleDateString()}</span>
-            </div>
+            </div> */}
           </Link>
         ))}
       </div>

@@ -11,10 +11,9 @@ import {
   RefreshCw,
   Target,
   FileText,
-  Milestone,
-  Package,
-  Layers,
+  ArrowLeft,
 } from 'lucide-react';
+import Link from 'next/link';
 import { TreeNode, TreeViewSettings } from '@/lib/types';
 import { TreeUtils } from '@/lib/tree-utils';
 import TreeNodeComponent from './TreeNode';
@@ -25,9 +24,9 @@ interface TreeViewProps {
 }
 
 const defaultSettings: TreeViewSettings = {
-  fontFamily: 'Inter, sans-serif',
-  fontSize: 14,
-  showWbsCode: true,
+  fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+  fontSize: 15,
+  showWbsCode: false,     // Hide WBS codes
   showDescription: true,
   compactView: false,
   colorByType: true,
@@ -37,11 +36,12 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   const [nodes, setNodes] = useState<TreeNode[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
-  const [settings] = useState<TreeViewSettings>(defaultSettings); // Removed setSettings
+  const [settings] = useState<TreeViewSettings>(defaultSettings);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNodes, setFilteredNodes] = useState<TreeNode[]>([]);
   const [draggedNodeId, setDraggedNodeId] = useState<number | null>(null);
   const [clipboard, setClipboard] = useState<{ type: 'copy' | 'cut'; nodeId: number } | null>(null);
+  const [projectNode, setProjectNode] = useState<TreeNode | null>(null);
 
   const qc = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -68,36 +68,62 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     refetchOnWindowFocus: false,
   });
 
-  // Update local state when tree data changes
+  // Create project node from project data
   useEffect(() => {
-    if (treeData) {
-      setNodes(treeData);
-      setFilteredNodes(treeData);
+    if (project && treeData) {
+      const projectTreeNode: TreeNode = {
+        id: project.id,
+        name: project.name,
+        description: project.description || '',
+        type: 'phase', // Project is treated as a phase
+        parentId: null,
+        projectId: project.id,
+        wbsCode: '1.0',
+        children: treeData,
+        orderIdx: 0,
+        level: 0,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+      };
       
-      // Auto-expand root nodes
-      const rootIds = treeData.map(node => node.id);
-      setExpandedNodes(new Set(rootIds));
+      setProjectNode(projectTreeNode);
+      setNodes([projectTreeNode]);
+      setFilteredNodes([projectTreeNode]);
+      
+      // Auto-expand the project node
+      setExpandedNodes(new Set([project.id]));
     }
-  }, [treeData]);
+  }, [project, treeData]);
 
   // Search functionality
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    if (!searchQuery.trim() || !projectNode) {
       setFilteredNodes(nodes);
       return;
     }
 
-    const searchResults = TreeUtils.searchNodes(nodes, searchQuery);
-    setFilteredNodes(searchResults);
+    // Search within the project's children
+    const searchResults = TreeUtils.searchNodes(projectNode.children || [], searchQuery);
     
-    // Expand paths to search results
-    const expandedIds = new Set(expandedNodes);
-    searchResults.forEach(node => {
-      const path = TreeUtils.findNodePath(nodes, node.id);
-      path.forEach(pathNode => expandedIds.add(pathNode.id));
-    });
-    setExpandedNodes(expandedIds);
-  }, [searchQuery, nodes, expandedNodes]);
+    if (searchResults.length > 0) {
+      // Create a filtered project node with only search results
+      const filteredProjectNode = {
+        ...projectNode,
+        children: searchResults,
+      };
+      setFilteredNodes([filteredProjectNode]);
+      
+      // Expand paths to search results
+      const expandedIds = new Set([projectNode.id]);
+      searchResults.forEach(node => {
+        const path = TreeUtils.findNodePath(projectNode.children || [], node.id);
+        path.forEach(pathNode => expandedIds.add(pathNode.id));
+      });
+      setExpandedNodes(expandedIds);
+    } else {
+      setFilteredNodes([{ ...projectNode, children: [] }]);
+    }
+  }, [searchQuery, nodes, projectNode]);
 
   // Mutations
   const addNodeMutation = useMutation({
@@ -160,24 +186,29 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   });
 
   // Event handlers
-  const handleAddRoot = useCallback(() => {
-    const name = prompt('Enter root task name:');
-    if (name?.trim()) {
-      addNodeMutation.mutate({ parentId: null, name: name.trim() });
-    }
-  }, [addNodeMutation]);
-
   const handleAddChild = useCallback((parentId: number, name: string) => {
-    addNodeMutation.mutate({ parentId, name });
-  }, [addNodeMutation]);
+    // If adding to project node, use null as parentId for API
+    const apiParentId = parentId === projectId ? null : parentId;
+    addNodeMutation.mutate({ parentId: apiParentId, name });
+  }, [addNodeMutation, projectId]);
 
   const handleUpdateNode = useCallback((nodeId: number, updates: Partial<TreeNode>) => {
+    if (nodeId === projectId) {
+      // Handle project updates differently if needed
+      console.log('Project update requested:', updates);
+      return;
+    }
     updateNodeMutation.mutate({ nodeId, updates });
-  }, [updateNodeMutation]);
+  }, [updateNodeMutation, projectId]);
 
   const handleDeleteNode = useCallback((nodeId: number) => {
+    if (nodeId === projectId) {
+      // Prevent deleting the project node
+      alert('Cannot delete the project itself');
+      return;
+    }
     deleteNodeMutation.mutate(nodeId);
-  }, [deleteNodeMutation]);
+  }, [deleteNodeMutation, projectId]);
 
   const handleMoveNode = useCallback((nodeId: number, targetId: number, position: any) => {
     moveNodeMutation.mutate({ nodeId, targetId, position });
@@ -210,13 +241,15 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   }, []);
 
   const handleExpandAll = useCallback(() => {
-    const allIds = TreeUtils.flattenTree(nodes).map(node => node.id);
+    if (!projectNode) return;
+    const allIds = [projectNode.id, ...TreeUtils.flattenTree(projectNode.children || []).map(node => node.id)];
     setExpandedNodes(new Set(allIds));
-  }, [nodes]);
+  }, [projectNode]);
 
   const handleCollapseAll = useCallback(() => {
-    setExpandedNodes(new Set());
-  }, []);
+    if (!projectNode) return;
+    setExpandedNodes(new Set([projectNode.id])); // Keep project expanded
+  }, [projectNode]);
 
   const handleDragStart = useCallback((nodeId: number, dragData: any) => {
     setDraggedNodeId(nodeId);
@@ -227,7 +260,8 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   }, []);
 
   const handleExport = useCallback(() => {
-    const exportData = TreeUtils.exportToJson(nodes);
+    if (!projectNode) return;
+    const exportData = TreeUtils.exportToJson([projectNode]);
     const blob = new Blob([exportData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -235,7 +269,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     a.download = `${project?.name || 'wbs'}_export.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [nodes, project?.name]);
+  }, [projectNode, project?.name]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -250,17 +284,13 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
             e.preventDefault();
             handleExport();
             break;
-          case 'n':
-            e.preventDefault();
-            handleAddRoot();
-            break;
         }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleExport, handleAddRoot]);
+  }, [handleExport]);
 
   // Loading state
   if (isProjectLoading || isTreeLoading) {
@@ -268,24 +298,30 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       <div className="flex items-center justify-center h-screen">
         <div className="flex items-center gap-3">
           <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
-          <span className="text-lg text-gray-600">Loading WBS...</span>
+          <span className="text-lg text-gray-600" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+            Loading WBS...
+          </span>
         </div>
       </div>
     );
   }
 
-  // Empty state
-  if (nodes.length === 0) {
+  // Error state
+  if (!project) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
-          <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-semibold text-gray-700 mb-2">No WBS Created Yet</h2>
-          <p className="text-gray-500 mb-6">Start by creating your first root task</p>
-          <Button onClick={handleAddRoot} className="flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            Create Root Task
-          </Button>
+          <Target className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-semibold text-gray-700 mb-2" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+            Project Not Found
+          </h2>
+          <p className="text-gray-500 mb-6" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+            The project you're looking for doesn't exist
+          </p>
+          <Link href="/" className="flex items-center gap-2 text-blue-600 hover:text-blue-700">
+            <ArrowLeft className="w-5 h-5" />
+            Back to Projects
+          </Link>
         </div>
       </div>
     );
@@ -297,10 +333,27 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
         {/* Header */}
         <div className="p-6 border-b border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-800 mb-2">
-            {project?.name || 'WBS Project'}
-          </h1>
-          <p className="text-sm text-gray-600">Work Breakdown Structure</p>
+          <div className="flex items-center gap-3 mb-4">
+            <Link
+              href="/"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Back to Projects"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-600" />
+            </Link>
+            <h1 className="text-xl font-semibold text-gray-800" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+              WBS Structure
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-xs rounded-full ${
+              project.status === 'active' ? 'bg-green-100 text-green-800' :
+              project.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+              'bg-gray-100 text-gray-800'
+            }`} style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+              {project.status}
+            </span>
+          </div>
         </div>
 
         {/* Search */}
@@ -314,22 +367,17 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
             />
           </div>
-          
-
         </div>
 
         {/* Controls */}
         <div className="p-4 border-b border-gray-200">
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <Button onClick={handleAddRoot} className="flex items-center gap-2 text-sm">
-              <Plus className="w-4 h-4" />
-              Add Root
-            </Button>
+          <div className="grid grid-cols-1 gap-2 mb-4">
             <Button onClick={handleExport} variant="outline" className="flex items-center gap-2 text-sm">
               <Download className="w-4 h-4" />
-              Export
+              Export WBS
             </Button>
           </div>
 
@@ -344,14 +392,12 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
             </Button>
           </div>
         </div>
-
-
       </div>
 
-      {/* Main Content */}
+      {/* Main Content - Full width without right column */}
       <div className="flex-1 flex flex-col">
         {/* Tree Container */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-6" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
           <div className="space-y-1">
             {filteredNodes.map((node) => (
               <TreeNodeComponent
@@ -379,8 +425,6 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
             ))}
           </div>
         </div>
-
-
       </div>
     </div>
   );

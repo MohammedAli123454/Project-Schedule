@@ -70,6 +70,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedNodes.has(node.id);
   const isDragging = draggedNodeId === node.id;
+  const isProjectNode = node.id === projectId; // Check if this is the project node
 
   const typeIcons = {
     task: FileText,
@@ -86,6 +87,10 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleEdit = () => {
+    if (isProjectNode) {
+      // Don't allow editing project name from tree view
+      return;
+    }
     setIsEditing(true);
     setContextMenu(null);
     setTimeout(() => editInputRef.current?.focus(), 0);
@@ -116,6 +121,11 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleDeleteFromMenu = () => {
+    if (isProjectNode) {
+      alert('Cannot delete the project itself');
+      return;
+    }
+    
     if (confirm(`Delete "${node.name}" and all subtasks?`)) {
       onDelete(node.id);
     }
@@ -123,7 +133,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (isEditing) return;
+    if (isEditing || isProjectNode) return; // Don't allow dragging project node
     
     const dragData = {
       nodeId: node.id,
@@ -223,7 +233,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   return (
     <div className="relative">
       {/* Drop indicators */}
-      {isDragOver === 'above' && (
+      {isDragOver === 'above' && !isProjectNode && (
         <div className="absolute -top-0.5 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
       )}
       {isDragOver === 'below' && (
@@ -237,15 +247,17 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           ${isSelected ? 'bg-blue-50 ring-2 ring-blue-300' : 'hover:bg-gray-50'}
           ${isDragging ? 'opacity-50 scale-95' : ''}
           ${isDragOver === 'inside' ? 'bg-blue-100 ring-2 ring-blue-400 ring-dashed' : ''}
-          ${settings.compactView ? 'py-1' : 'py-2'}
-          pl-2 pr-4 rounded-lg mx-1 my-0.5 cursor-pointer
+          ${settings.compactView ? 'py-2' : 'py-3'}
+          ${isProjectNode ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg shadow-sm' : ''}
+          pl-3 pr-4 rounded-lg mx-1 my-0.5 cursor-pointer
         `}
         style={{ 
-          marginLeft: `${depth * (settings.compactView ? 16 : 24)}px`,
-          fontSize: `${settings.fontSize}px`,
-          fontFamily: settings.fontFamily,
+          marginLeft: `${depth * (settings.compactView ? 20 : 28)}px`,
+          fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+          fontSize: `${Math.max(settings.fontSize, 15)}px`,
+          fontWeight: isProjectNode ? '700' : depth === 1 ? '600' : '500',
         }}
-        draggable={!isEditing}
+        draggable={!isEditing && !isProjectNode}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragOver={handleDragOver}
@@ -257,9 +269,9 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         {/* Expand/Collapse Button */}
         <button
           className={`
-            flex items-center justify-center w-5 h-5 rounded hover:bg-gray-200
+            flex items-center justify-center w-6 h-6 rounded hover:bg-gray-200 transition-colors
             ${hasChildren ? 'text-gray-600' : 'text-transparent'}
-            ${settings.compactView ? 'mr-1' : 'mr-2'}
+            ${settings.compactView ? 'mr-2' : 'mr-3'}
           `}
           onClick={(e) => {
             e.stopPropagation();
@@ -278,9 +290,11 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         </button>
 
         {/* Type Icon */}
-        <TypeIcon className={`w-4 h-4 mr-2 ${settings.colorByType ? typeColors[node.type as keyof typeof typeColors] : 'text-gray-500'}`} />
+        <TypeIcon className={`w-5 h-5 mr-3 ${
+          settings.colorByType ? typeColors[node.type as keyof typeof typeColors] : 'text-gray-500'
+        } ${isProjectNode ? 'text-blue-600' : ''}`} />
 
-        {/* Node Content */}
+        {/* Node Content - Removed WBS codes and metadata column */}
         <div className="flex-1 min-w-0">
           {isEditing ? (
             <input
@@ -296,49 +310,38 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
                   handleCancelEdit();
                 }
               }}
-              className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center min-w-0 flex-1">
-                <span className={`
-                  truncate font-medium
-                  ${depth === 0 ? 'text-lg font-semibold' : 'text-sm'}
-                `}>
-                  {settings.showWbsCode && node.wbsCode && (
-                    <span className="text-gray-400 mr-2 font-mono text-xs">
-                      {node.wbsCode}
-                    </span>
-                  )}
-                  {node.name}
+            <div className="flex items-center">
+              <span className={`
+                truncate 
+                ${isProjectNode ? 'text-xl font-bold text-blue-900' : 
+                  depth === 1 ? 'text-lg font-semibold text-gray-800' : 
+                  'text-base text-gray-700'}
+              `}
+              style={{ 
+                fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+                letterSpacing: '0.01em',
+                lineHeight: '1.4'
+              }}>
+                {node.name}
+              </span>
+              
+              {settings.showDescription && node.description && (
+                <span className="ml-3 text-sm text-gray-500 truncate" 
+                      style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+                  - {node.description}
                 </span>
-                
-                {settings.showDescription && node.description && (
-                  <span className="ml-2 text-xs text-gray-500 truncate">
-                    - {node.description}
-                  </span>
-                )}
-              </div>
-
-              {/* Metadata */}
-              <div className="flex items-center gap-2 ml-4">
-                <span className="text-xs text-gray-400 capitalize">
-                  {node.type}
-                </span>
-                
-                {hasChildren && (
-                  <span className="text-xs text-gray-400 bg-gray-100 px-1 rounded">
-                    {node.children.length}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Context Menu - FIXED VERSION */}
+      {/* Context Menu */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -353,58 +356,79 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
             onClick={handleAddChildFromMenu}
           >
             <Plus className="w-4 h-4" />
-            Add Child
+            {isProjectNode ? 'Add Task' : 'Add Child'}
           </button>
           
-          <button
-            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
-            onClick={handleEdit}
-          >
-            <Edit2 className="w-4 h-4" />
-            Edit
-          </button>
-          
-          <div className="border-t border-gray-200 my-1"></div>
-          
-          <button
-            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
-            onClick={() => {
-              onCopy(node.id);
-              setContextMenu(null);
-            }}
-          >
-            <Copy className="w-4 h-4" />
-            Copy
-          </button>
-          
-          {clipboard && (
-            <button
-              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
-              onClick={() => {
-                onPaste(node.id);
-                setContextMenu(null);
-              }}
-            >
-              <Plus className="w-4 h-4" />
-              Paste Here
-            </button>
+          {!isProjectNode && (
+            <>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+                onClick={handleEdit}
+              >
+                <Edit2 className="w-4 h-4" />
+                Edit
+              </button>
+              
+              <div className="border-t border-gray-200 my-1"></div>
+              
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+                onClick={() => {
+                  onCopy(node.id);
+                  setContextMenu(null);
+                }}
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+              
+              {clipboard && (
+                <button
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+                  onClick={() => {
+                    onPaste(node.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  Paste Here
+                </button>
+              )}
+              
+              <div className="border-t border-gray-200 my-1"></div>
+              
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-red-100 flex items-center gap-2 text-red-600"
+                onClick={handleDeleteFromMenu}
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete
+              </button>
+            </>
           )}
           
-          <div className="border-t border-gray-200 my-1"></div>
-          
-          <button
-            className="w-full px-3 py-2 text-left text-sm hover:bg-red-100 flex items-center gap-2 text-red-600"
-            onClick={handleDeleteFromMenu}
-          >
-            <Trash2 className="w-4 h-4" />
-            Delete
-          </button>
+          {/* Project-specific menu items */}
+          {isProjectNode && clipboard && (
+            <>
+              <div className="border-t border-gray-200 my-1"></div>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-700"
+                onClick={() => {
+                  onPaste(node.id);
+                  setContextMenu(null);
+                }}
+              >
+                <Plus className="w-4 h-4" />
+                Paste Here
+              </button>
+            </>
+          )}
         </div>
       )}
 
       {/* Children */}
       {hasChildren && isExpanded && (
-        <div className="ml-4">
+        <div className="ml-2">
           {node.children.map((child) => (
             <TreeNodeComponent
               key={child.id}
