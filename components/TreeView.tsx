@@ -4,11 +4,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
-  Settings,
   Download,
   Plus,
   Expand,
-   ChevronUp,  
+  ChevronUp,  
   RefreshCw,
   Target,
   FileText,
@@ -38,13 +37,11 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   const [nodes, setNodes] = useState<TreeNode[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
-  const [settings, setSettings] = useState<TreeViewSettings>(defaultSettings);
+  const [settings] = useState<TreeViewSettings>(defaultSettings); // Removed setSettings
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNodes, setFilteredNodes] = useState<TreeNode[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
   const [draggedNodeId, setDraggedNodeId] = useState<number | null>(null);
   const [clipboard, setClipboard] = useState<{ type: 'copy' | 'cut'; nodeId: number } | null>(null);
-  const [nodeTypeFilter, setNodeTypeFilter] = useState<string>('all');
 
   const qc = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -83,39 +80,24 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     }
   }, [treeData]);
 
-  // Search and filter functionality
+  // Search functionality
   useEffect(() => {
-    if (!searchQuery.trim() && nodeTypeFilter === 'all') {
+    if (!searchQuery.trim()) {
       setFilteredNodes(nodes);
       return;
     }
 
-    let filtered = nodes;
-
-    // Search filter
-    if (searchQuery.trim()) {
-      const searchResults = TreeUtils.searchNodes(nodes, searchQuery);
-      filtered = searchResults;
-      
-      // Expand paths to search results
-      const expandedIds = new Set(expandedNodes);
-      searchResults.forEach(node => {
-        const path = TreeUtils.findNodePath(nodes, node.id);
-        path.forEach(pathNode => expandedIds.add(pathNode.id));
-      });
-      setExpandedNodes(expandedIds);
-    }
-
-    // Type filter
-    if (nodeTypeFilter !== 'all') {
-      const typeFilteredNodes = TreeUtils.flattenTree(filtered).filter(node => 
-        node.type === nodeTypeFilter
-      );
-      filtered = typeFilteredNodes;
-    }
-
-    setFilteredNodes(filtered);
-  }, [searchQuery, nodeTypeFilter, nodes, expandedNodes]);
+    const searchResults = TreeUtils.searchNodes(nodes, searchQuery);
+    setFilteredNodes(searchResults);
+    
+    // Expand paths to search results
+    const expandedIds = new Set(expandedNodes);
+    searchResults.forEach(node => {
+      const path = TreeUtils.findNodePath(nodes, node.id);
+      path.forEach(pathNode => expandedIds.add(pathNode.id));
+    });
+    setExpandedNodes(expandedIds);
+  }, [searchQuery, nodes, expandedNodes]);
 
   // Mutations
   const addNodeMutation = useMutation({
@@ -323,7 +305,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
 
         {/* Search */}
         <div className="p-4 border-b border-gray-200">
-          <div className="relative mb-3">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               ref={searchInputRef}
@@ -335,18 +317,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
             />
           </div>
           
-          {/* Type Filter */}
-          <select
-            value={nodeTypeFilter}
-            onChange={(e) => setNodeTypeFilter(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Types</option>
-            <option value="task">Tasks</option>
-            <option value="milestone">Milestones</option>
-            <option value="deliverable">Deliverables</option>
-            <option value="phase">Phases</option>
-          </select>
+
         </div>
 
         {/* Controls */}
@@ -362,107 +333,19 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="grid grid-cols-2 gap-2">
             <Button onClick={handleExpandAll} variant="outline" size="sm">
               <Expand className="w-4 h-4 mr-1" />
               Expand
             </Button>
             <Button onClick={handleCollapseAll} variant="outline" size="sm">
-              < ChevronUp className="w-4 h-4 mr-1" />
+              <ChevronUp className="w-4 h-4 mr-1" />
               Collapse
             </Button>
           </div>
-
-          <Button
-            onClick={() => setShowSettings(!showSettings)}
-            variant="outline"
-            className="w-full flex items-center gap-2 text-sm"
-          >
-            <Settings className="w-4 h-4" />
-            Settings
-          </Button>
         </div>
 
-        {/* Settings Panel */}
-        {showSettings && (
-          <div className="p-4 border-b border-gray-200 bg-gray-50">
-            <h3 className="font-medium mb-3">View Settings</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Font Size</label>
-                <select
-                  value={settings.fontSize}
-                  onChange={(e) => setSettings(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
-                  className="w-full p-2 border border-gray-300 rounded text-sm"
-                >
-                  <option value={12}>12px</option>
-                  <option value={14}>14px</option>
-                  <option value={16}>16px</option>
-                  <option value={18}>18px</option>
-                  <option value={20}>20px</option>
-                </select>
-              </div>
-              
-              <div className="space-y-2">
-                {[
-                  { key: 'showWbsCode', label: 'Show WBS Code' },
-                  { key: 'showDescription', label: 'Show Description' },
-                  { key: 'compactView', label: 'Compact View' },
-                  { key: 'colorByType', label: 'Color by Type' },
-                ].map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={settings[key as keyof TreeViewSettings] as boolean}
-                      onChange={(e) => setSettings(prev => ({ ...prev, [key]: e.target.checked }))}
-                      className="rounded"
-                    />
-                    <span className="text-sm">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
-        {/* Legend */}
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="font-medium mb-2">Node Types</h3>
-          <div className="space-y-1 text-sm">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-blue-600" />
-              <span>Task</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Milestone className="w-4 h-4 text-purple-600" />
-              <span>Milestone</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Package className="w-4 h-4 text-green-600" />
-              <span>Deliverable</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-orange-600" />
-              <span>Phase</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Status Bar */}
-        <div className="mt-auto p-4 border-t border-gray-200 bg-gray-50">
-          <div className="text-xs text-gray-500 space-y-1">
-            {selectedNodeId && (
-              <div>Selected: Node {selectedNodeId}</div>
-            )}
-            <div>Total: {TreeUtils.flattenTree(nodes).length} nodes</div>
-            <div>Showing: {TreeUtils.flattenTree(filteredNodes).length} nodes</div>
-            {clipboard && (
-              <div className="text-blue-600">
-                {clipboard.type === 'copy' ? 'Copied' : 'Cut'} node {clipboard.nodeId}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Main Content */}
@@ -497,17 +380,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="bg-white border-t border-gray-200 p-4">
-          <div className="flex justify-between items-center text-sm text-gray-500">
-            <div>
-              Last updated: {new Date().toLocaleTimeString()}
-            </div>
-            <div className="flex items-center gap-4">
-              <span>Shortcuts: Ctrl+F (Search), Ctrl+N (New), Ctrl+E (Export)</span>
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   );
