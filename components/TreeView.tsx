@@ -12,6 +12,10 @@ import {
   Target,
   FileText,
   ArrowLeft,
+  Menu,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TreeNode, TreeViewSettings } from '@/lib/types';
@@ -42,6 +46,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   const [draggedNodeId, setDraggedNodeId] = useState<number | null>(null);
   const [clipboard, setClipboard] = useState<{ type: 'copy' | 'cut'; nodeId: number } | null>(null);
   const [projectNode, setProjectNode] = useState<TreeNode | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const qc = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -271,6 +276,10 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     URL.revokeObjectURL(url);
   }, [projectNode, project?.name]);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => !prev);
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -278,11 +287,17 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
         switch (e.key) {
           case 'f':
             e.preventDefault();
-            searchInputRef.current?.focus();
+            if (!sidebarCollapsed) {
+              searchInputRef.current?.focus();
+            }
             break;
           case 'e':
             e.preventDefault();
             handleExport();
+            break;
+          case 'b':
+            e.preventDefault();
+            toggleSidebar();
             break;
         }
       }
@@ -290,12 +305,12 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleExport]);
+  }, [handleExport, toggleSidebar, sidebarCollapsed]);
 
   // Loading state
   if (isProjectLoading || isTreeLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
         <div className="flex items-center gap-3">
           <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
           <span className="text-lg text-gray-600" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
@@ -309,7 +324,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   // Error state
   if (!project) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50">
         <div className="text-center">
           <Target className="w-16 h-16 text-red-400 mx-auto mb-4" />
           <h2 className="text-2xl font-semibold text-gray-700 mb-2" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
@@ -328,101 +343,160 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   }
 
   return (
-    <div className="h-screen bg-gray-50 flex">
-      {/* Left Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-        {/* Header */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center gap-3 mb-4">
-            <Link
-              href="/"
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Back to Projects"
-            >
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
-            </Link>
-            <h1 className="text-xl font-semibold text-gray-800" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-              WBS Structure
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-1 text-xs rounded-full ${
-              project.status === 'active' ? 'bg-green-100 text-green-800' :
-              project.status === 'completed' ? 'bg-blue-100 text-blue-800' :
-              'bg-gray-100 text-gray-800'
-            }`} style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-              {project.status}
-            </span>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search tasks... (Ctrl+F)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
-            />
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="grid grid-cols-1 gap-2 mb-4">
-            <Button onClick={handleExport} variant="outline" className="flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" />
-              Export WBS
-            </Button>
+    <div className="h-screen w-screen bg-gray-50 flex overflow-hidden">
+      {/* Collapsible Left Sidebar */}
+      <div className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out ${
+        sidebarCollapsed ? 'w-0' : 'w-80'
+      } ${sidebarCollapsed ? 'overflow-hidden' : 'overflow-visible'}`}>
+        <div className={`${sidebarCollapsed ? 'hidden' : 'block'} h-full flex flex-col`}>
+          {/* Header */}
+          <div className="p-6 border-b border-gray-200 flex-shrink-0">
+            <div className="flex items-center gap-3 mb-4">
+              <Link
+                href="/"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Back to Projects"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </Link>
+              <h1 className="text-xl font-semibold text-gray-800" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+                WBS Structure
+              </h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-1 text-xs rounded-full ${
+                project.status === 'active' ? 'bg-green-100 text-green-800' :
+                project.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                'bg-gray-100 text-gray-800'
+              }`} style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+                {project.status}
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Button onClick={handleExpandAll} variant="outline" size="sm">
-              <Expand className="w-4 h-4 mr-1" />
-              Expand
-            </Button>
-            <Button onClick={handleCollapseAll} variant="outline" size="sm">
-              <ChevronUp className="w-4 h-4 mr-1" />
-              Collapse
-            </Button>
+          {/* Search */}
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search tasks... (Ctrl+F)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
+              />
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <div className="grid grid-cols-1 gap-2 mb-4">
+              <Button onClick={handleExport} variant="outline" className="flex items-center gap-2 text-sm">
+                <Download className="w-4 h-4" />
+                Export WBS
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={handleExpandAll} variant="outline" size="sm">
+                <Expand className="w-4 h-4 mr-1" />
+                Expand
+              </Button>
+              <Button onClick={handleCollapseAll} variant="outline" size="sm">
+                <ChevronUp className="w-4 h-4 mr-1" />
+                Collapse
+              </Button>
+            </div>
+          </div>
+
+          {/* Help Section */}
+          <div className="p-4 text-xs text-gray-500 flex-shrink-0" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+            <div className="space-y-1">
+              <div><kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Ctrl+B</kbd> Toggle sidebar</div>
+              <div><kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Ctrl+F</kbd> Search</div>
+              <div><kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Ctrl+E</kbd> Export</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content - Full width without right column */}
-      <div className="flex-1 flex flex-col">
-        {/* Tree Container */}
-        <div className="flex-1 overflow-auto p-6" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-          <div className="space-y-1">
-            {filteredNodes.map((node) => (
-              <TreeNodeComponent
-                key={node.id}
-                node={node}
-                projectId={projectId}
-                depth={0}
-                isSelected={selectedNodeId === node.id}
-                draggedNodeId={draggedNodeId}
-                settings={settings}
-                onSelect={setSelectedNodeId}
-                onUpdate={handleUpdateNode}
-                onDelete={handleDeleteNode}
-                onMove={handleMoveNode}
-                onAddChild={handleAddChild}
-                onCopy={handleCopyNode}
-                onCut={handleCutNode}
-                onPaste={handlePasteNode}
-                clipboard={clipboard}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
-                expandedNodes={expandedNodes}
-                onToggleExpanded={handleToggleExpanded}
-              />
-            ))}
+      {/* Toggle Button */}
+      <div className="relative">
+        <button
+          onClick={toggleSidebar}
+          className={`absolute top-4 z-10 p-2 bg-white border border-gray-200 rounded-r-lg shadow-sm hover:bg-gray-50 transition-all duration-200 ${
+            sidebarCollapsed ? 'left-0' : '-left-10'
+          }`}
+          title={sidebarCollapsed ? 'Open sidebar (Ctrl+B)' : 'Close sidebar (Ctrl+B)'}
+        >
+          {sidebarCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-gray-600" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-gray-600" />
+          )}
+        </button>
+      </div>
+
+      {/* Main Content - Full width when sidebar collapsed */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Optional Top Bar for when sidebar is collapsed */}
+        {sidebarCollapsed && (
+          <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold text-gray-800" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+                {project.name}
+              </h1>
+              <span className={`px-2 py-1 text-xs rounded-full ${
+                project.status === 'active' ? 'bg-green-100 text-green-800' :
+                project.status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {project.status}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button onClick={handleExport} variant="outline" size="sm">
+                <Download className="w-4 h-4 mr-1" />
+                Export
+              </Button>
+              <Link href="/" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <ArrowLeft className="w-4 h-4 text-gray-600" />
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Scrollable Tree Container */}
+        <div className="flex-1 overflow-auto" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+          <div className="p-6">
+            <div className="space-y-1">
+              {filteredNodes.map((node) => (
+                <TreeNodeComponent
+                  key={node.id}
+                  node={node}
+                  projectId={projectId}
+                  depth={0}
+                  isSelected={selectedNodeId === node.id}
+                  draggedNodeId={draggedNodeId}
+                  settings={settings}
+                  onSelect={setSelectedNodeId}
+                  onUpdate={handleUpdateNode}
+                  onDelete={handleDeleteNode}
+                  onMove={handleMoveNode}
+                  onAddChild={handleAddChild}
+                  onCopy={handleCopyNode}
+                  onCut={handleCutNode}
+                  onPaste={handlePasteNode}
+                  clipboard={clipboard}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  expandedNodes={expandedNodes}
+                  onToggleExpanded={handleToggleExpanded}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
