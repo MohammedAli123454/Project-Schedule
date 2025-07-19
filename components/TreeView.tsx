@@ -82,6 +82,17 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     }));
   }, []);
 
+  // Simple drag handlers - no complex state management
+  const handleDragStart = useCallback((nodeId: number, dragData: any) => {
+    setDraggedNodeId(nodeId);
+    console.log('🚀 Drag started for node:', nodeId);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    console.log('🏁 Drag ended');
+    setDraggedNodeId(null);
+  }, []);
+
   // Fetch project data
   const { data: project, isLoading: isProjectLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -165,7 +176,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     }
   }, [searchQuery, nodes, projectNode]);
 
-  // Mutations with loading state management
+  // Simplified mutations - focus on core functionality
   const addNodeMutation = useMutation({
     mutationFn: async ({ parentId, name, type = 'task' }: { parentId: number | null; name: string; type?: string }) => {
       const response = await fetch('/api/nodes', {
@@ -180,20 +191,28 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       const targetParentId = parentId || projectId;
       addLoadingState('adding', targetParentId);
       setIsTreeOperationLoading(true);
-      // Preserve current expanded state
+      setDraggedNodeId(null); // Clear any drag state
       setPreservedExpandedNodes(new Set(expandedNodes));
     },
-    onSuccess: (data, { parentId }) => {
-      const targetParentId = parentId || projectId;
-      removeLoadingState('adding', targetParentId);
+    onSuccess: () => {
       refetchTree().then(() => {
         setIsTreeOperationLoading(false);
+        setLoadingStates({
+          updating: new Set(),
+          deleting: new Set(),
+          adding: new Set(),
+          moving: new Set(),
+        });
       });
     },
-    onError: (error, { parentId }) => {
-      const targetParentId = parentId || projectId;
-      removeLoadingState('adding', targetParentId);
+    onError: (error) => {
       setIsTreeOperationLoading(false);
+      setLoadingStates({
+        updating: new Set(),
+        deleting: new Set(),
+        adding: new Set(),
+        moving: new Set(),
+      });
       console.error('Failed to add node:', error);
     },
   });
@@ -211,18 +230,28 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     onMutate: async ({ nodeId }) => {
       addLoadingState('updating', nodeId);
       setIsTreeOperationLoading(true);
-      // Preserve current expanded state
+      setDraggedNodeId(null);
       setPreservedExpandedNodes(new Set(expandedNodes));
     },
-    onSuccess: (data, { nodeId }) => {
-      removeLoadingState('updating', nodeId);
+    onSuccess: () => {
       refetchTree().then(() => {
         setIsTreeOperationLoading(false);
+        setLoadingStates({
+          updating: new Set(),
+          deleting: new Set(),
+          adding: new Set(),
+          moving: new Set(),
+        });
       });
     },
-    onError: (error, { nodeId }) => {
-      removeLoadingState('updating', nodeId);
+    onError: (error) => {
       setIsTreeOperationLoading(false);
+      setLoadingStates({
+        updating: new Set(),
+        deleting: new Set(),
+        adding: new Set(),
+        moving: new Set(),
+      });
       console.error('Failed to update node:', error);
     },
   });
@@ -238,23 +267,34 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     onMutate: async (nodeId) => {
       addLoadingState('deleting', nodeId);
       setIsTreeOperationLoading(true);
-      // Preserve current expanded state
+      setDraggedNodeId(null);
       setPreservedExpandedNodes(new Set(expandedNodes));
     },
-    onSuccess: (data, nodeId) => {
-      removeLoadingState('deleting', nodeId);
+    onSuccess: () => {
       refetchTree().then(() => {
         setIsTreeOperationLoading(false);
+        setLoadingStates({
+          updating: new Set(),
+          deleting: new Set(),
+          adding: new Set(),
+          moving: new Set(),
+        });
       });
       setSelectedNodeId(null);
     },
-    onError: (error, nodeId) => {
-      removeLoadingState('deleting', nodeId);
+    onError: (error) => {
       setIsTreeOperationLoading(false);
+      setLoadingStates({
+        updating: new Set(),
+        deleting: new Set(),
+        adding: new Set(),
+        moving: new Set(),
+      });
       console.error('Failed to delete node:', error);
     },
   });
 
+  // Simplified move mutation - just execute and refresh
   const moveNodeMutation = useMutation({
     mutationFn: async ({ nodeId, targetId, position }: { nodeId: number; targetId: number; position: any }) => {
       const response = await fetch('/api/nodes/move', {
@@ -269,20 +309,28 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       addLoadingState('moving', nodeId);
       addLoadingState('moving', targetId);
       setIsTreeOperationLoading(true);
-      // Preserve current expanded state
+      setDraggedNodeId(null); // Clear drag state immediately
       setPreservedExpandedNodes(new Set(expandedNodes));
     },
-    onSuccess: (data, { nodeId, targetId }) => {
-      removeLoadingState('moving', nodeId);
-      removeLoadingState('moving', targetId);
+    onSuccess: () => {
       refetchTree().then(() => {
         setIsTreeOperationLoading(false);
+        setLoadingStates({
+          updating: new Set(),
+          deleting: new Set(),
+          adding: new Set(),
+          moving: new Set(),
+        });
       });
     },
-    onError: (error, { nodeId, targetId }) => {
-      removeLoadingState('moving', nodeId);
-      removeLoadingState('moving', targetId);
+    onError: (error) => {
       setIsTreeOperationLoading(false);
+      setLoadingStates({
+        updating: new Set(),
+        deleting: new Set(),
+        adding: new Set(),
+        moving: new Set(),
+      });
       console.error('Failed to move node:', error);
     },
   });
@@ -312,7 +360,9 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     deleteNodeMutation.mutate(nodeId);
   }, [deleteNodeMutation, projectId]);
 
+  // Simple move handler - just execute the move
   const handleMoveNode = useCallback((nodeId: number, targetId: number, position: any) => {
+    console.log('📤 Move operation:', { nodeId, targetId, position });
     moveNodeMutation.mutate({ nodeId, targetId, position });
   }, [moveNodeMutation]);
 
@@ -353,14 +403,6 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     setExpandedNodes(new Set([projectNode.id])); // Keep project expanded
   }, [projectNode]);
 
-  const handleDragStart = useCallback((nodeId: number, dragData: any) => {
-    setDraggedNodeId(nodeId);
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    setDraggedNodeId(null);
-  }, []);
-
   const handleExport = useCallback(() => {
     if (!projectNode) return;
     const exportData = TreeUtils.exportToJson([projectNode]);
@@ -377,10 +419,9 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     setSidebarCollapsed(prev => !prev);
   }, []);
 
-  // Enhanced selection handler with deselection support
+  // Simple selection handler
   const handleSelect = useCallback((nodeId: number) => {
     setSelectedNodeId(prev => {
-      // If clicking the same node or using -1 to deselect, clear selection
       if (prev === nodeId || nodeId === -1) {
         return null;
       }
@@ -576,9 +617,9 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
           </div>
         )}
 
-        {/* Scrollable Tree Container with ScrollArea */}
+        {/* Scrollable Tree Container */}
         <div className="flex-1 relative min-h-0" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-          {/* Full Width Loading Bar */}
+          {/* Simple Loading Bar */}
           {isTreeOperationLoading && (
             <div className="absolute top-0 left-0 right-0 z-50">
               <BarLoader
