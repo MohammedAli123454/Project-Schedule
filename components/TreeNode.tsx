@@ -35,7 +35,6 @@ interface TreeNodeProps {
   onDragEnd: () => void;
   expandedNodes: Set<number>;
   onToggleExpanded: (nodeId: number) => void;
-  // New props for loading states
   loadingStates?: {
     updating: Set<number>;
     deleting: Set<number>;
@@ -85,7 +84,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   const hasChildren = node.children && node.children.length > 0;
   const isExpanded = expandedNodes.has(node.id);
   const isDragging = draggedNodeId === node.id;
-  const isProjectNode = node.id === projectId; // Check if this is the project node
+  const isProjectNode = node.id === projectId;
 
   // Check loading states
   const isUpdating = loadingStates.updating.has(node.id);
@@ -110,7 +109,6 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
   const handleEdit = () => {
     if (isProjectNode || hasAnyLoading || isTreeDisabled) {
-      // Don't allow editing project name from tree view or during loading
       return;
     }
     setIsEditing(true);
@@ -136,7 +134,6 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
     const name = prompt('Enter task name:');
     if (name?.trim()) {
       onAddChild(node.id, name.trim());
-      // Expand the parent node to show the new child
       if (!isExpanded) {
         onToggleExpanded(node.id);
       }
@@ -159,25 +156,45 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (isEditing || isProjectNode || hasAnyLoading || isTreeDisabled) return; // Don't allow dragging project node or during loading
+    if (isEditing || isProjectNode || hasAnyLoading || isTreeDisabled) {
+      e.preventDefault();
+      return;
+    }
     
     const dragData = {
       nodeId: node.id,
       parentId: node.parentId,
       indexInParent: 0,
       level: depth,
+      nodeType: node.type,
+      nodeName: node.name
     };
+    
+    console.log('🚀 Drag start:', dragData);
     
     e.dataTransfer.setData('application/json', JSON.stringify(dragData));
     e.dataTransfer.effectAllowed = 'move';
+    
+    // Add drag image for better visual feedback
+    if (nodeRef.current) {
+      const dragImage = nodeRef.current.cloneNode(true) as HTMLElement;
+      dragImage.style.opacity = '0.8';
+      dragImage.style.transform = 'rotate(2deg)';
+      document.body.appendChild(dragImage);
+      e.dataTransfer.setDragImage(dragImage, 0, 0);
+      setTimeout(() => document.body.removeChild(dragImage), 0);
+    }
+    
     onDragStart(node.id, dragData);
   };
 
   const handleDragEnd = () => {
+    console.log('🏁 Drag end');
     onDragEnd();
     setIsDragOver(null);
   };
 
+  // REDESIGNED: Natural drag experience - drop anywhere on a node
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     if (isDragging || hasAnyLoading || isTreeDisabled) return;
@@ -188,17 +205,48 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
     const y = e.clientY - rect.top;
     const height = rect.height;
     
-    if (y < height * 0.25) {
-      setIsDragOver('above');
-    } else if (y > height * 0.75) {
-      setIsDragOver('below');
+    // Simple and intuitive: most of the node is a valid drop target
+    let newPosition: 'above' | 'below' | 'inside' | null = null;
+    
+    // Very small edge zones for precise control, large center for natural drops
+    const edgeSize = Math.min(height * 0.15, 8); // Max 8px edge zones
+    
+    if (y <= edgeSize) {
+      // Tiny top edge for "above"
+      newPosition = 'above';
+    } else if (y >= height - edgeSize) {
+      // Tiny bottom edge for "below"  
+      newPosition = 'below';
     } else {
-      setIsDragOver('inside');
+      // Most of the node area - make smart decisions
+      if (hasChildren) {
+        // Parent nodes: dropping on them means "add as child"
+        newPosition = 'inside';
+      } else {
+        // Leaf nodes: dropping on them means "add as next sibling"
+        newPosition = 'below';
+      }
+    }
+    
+    if (newPosition !== isDragOver) {
+      setIsDragOver(newPosition);
+      console.log(`🎯 Drop on ${node.name}: ${newPosition} (y: ${y.toFixed(0)}/${height}, edge: ${edgeSize}px)`);
     }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    if (!nodeRef.current?.contains(e.relatedTarget as Node)) {
+    // More robust drag leave detection
+    const rect = nodeRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    // Check if we're actually leaving the node bounds
+    const isOutside = x < rect.left || x > rect.right || y < rect.top || y > rect.bottom;
+    
+    if (isOutside) {
+      console.log(`🚪 Drag leave ${node.name} (${node.id}): clearing position`);
       setIsDragOver(null);
     }
   };
@@ -209,21 +257,53 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
     
     try {
       const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
-      if (dragData.nodeId === node.id) return;
       
+      console.log('🎯 Drop event:', {
+        from: `${dragData.nodeName} (${dragData.nodeId})`,
+        to: `${node.name} (${node.id})`,
+        position: isDragOver,
+        draggedParent: dragData.parentId,
+        targetParent: node.parentId
+      });
+      
+      // Basic validation
+      if (dragData.nodeId === node.id) {
+        console.log('❌ Cannot drop node on itself');
+        setIsDragOver(null);
+        return;
+      }
+      
+      // Prevent dropping a node as child of itself (would create cycle)
+      if (isDragOver === 'inside' && dragData.parentId === node.id) {
+        console.log('❌ Node is already a child of target');
+        setIsDragOver(null);
+        return;
+      }
+      
+      // Create position object for API
       const position = {
         type: isDragOver,
         targetId: node.id,
         targetParentId: node.parentId,
         targetIndex: 0,
+        draggedNodeParentId: dragData.parentId,
+        draggedNodeOrderIdx: dragData.indexInParent || 0
       };
       
+      console.log('📤 Sending to API:', {
+        nodeId: dragData.nodeId,
+        targetId: node.id,
+        position
+      });
+      
+      // Execute the move
       onMove(dragData.nodeId, node.id, position);
+      
     } catch (error) {
-      console.error('Failed to drop node:', error);
+      console.error('❌ Drop failed:', error);
+    } finally {
+      setIsDragOver(null);
     }
-    
-    setIsDragOver(null);
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -246,13 +326,11 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         setContextMenu(null);
       }
       
-      // Handle deselection when clicking outside the node
       if (isSelected && nodeRef.current && !nodeRef.current.contains(e.target as Node)) {
-        // Only deselect if clicking outside any tree node
         const clickedElement = e.target as Element;
         const isTreeNode = clickedElement.closest('[data-tree-node]');
         if (!isTreeNode) {
-          onSelect(-1); // Use -1 to indicate no selection
+          onSelect(-1);
         }
       }
     };
@@ -270,12 +348,12 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
   return (
     <div className="relative">
-      {/* Drop indicators */}
+      {/* Drop indicators with better visibility */}
       {isDragOver === 'above' && !isProjectNode && (
-        <div className="absolute -top-0.5 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
+        <div className="absolute -top-1 left-0 right-0 h-1 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full z-10 shadow-sm" />
       )}
       {isDragOver === 'below' && (
-        <div className="absolute -bottom-0.5 left-0 right-0 h-0.5 bg-blue-500 rounded-full z-10" />
+        <div className="absolute -bottom-1 left-0 right-0 h-1 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full z-10 shadow-sm" />
       )}
 
       <div
@@ -284,8 +362,10 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         className={`
           relative flex items-center group transition-all duration-200
           ${isSelected ? 'bg-blue-50 ring-2 ring-blue-500 shadow-md' : 'hover:bg-gray-50'}
-          ${isDragging ? 'opacity-50 scale-95' : ''}
-          ${isDragOver === 'inside' ? 'bg-blue-100 ring-2 ring-blue-400 ring-dashed' : ''}
+          ${isDragging ? 'opacity-40 scale-98 shadow-lg ring-2 ring-blue-300' : ''}
+          ${isDragOver === 'inside' ? 'bg-green-50 ring-2 ring-green-400 shadow-lg scale-102 border-green-300' : ''}
+          ${isDragOver === 'below' ? 'bg-blue-50 ring-2 ring-blue-400 shadow-md' : ''}
+          ${isDragOver === 'above' ? 'bg-blue-50 ring-2 ring-blue-400 shadow-md' : ''}
           ${isProjectNode ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg shadow-sm' : ''}
           ${hasAnyLoading || isTreeDisabled ? 'opacity-75' : ''}
           ${settings.compactView ? 'py-2' : 'py-3'}
@@ -342,8 +422,25 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           settings.colorByType ? typeColors[node.type as keyof typeof typeColors] : 'text-gray-500'
         } ${isProjectNode ? 'text-blue-600' : ''} ${hasAnyLoading ? 'opacity-50' : ''}`} />
 
-        {/* Node Content - Removed WBS codes and metadata column */}
-        <div className="flex-1 min-w-0">
+        {/* Node Content */}
+        <div className="flex-1 min-w-0 relative">
+          {/* Drop action indicator overlay */}
+          {isDragOver && (
+            <div className="absolute inset-0 flex items-center justify-end pr-4 z-20">
+              <div className={`
+                px-3 py-1 rounded-full text-xs font-semibold shadow-lg border-2 transition-all duration-200
+                ${isDragOver === 'inside' 
+                  ? 'bg-green-100 text-green-800 border-green-300' 
+                  : 'bg-blue-100 text-blue-800 border-blue-300'
+                }
+              `}>
+                {isDragOver === 'inside' ? '📁 Add as child' : 
+                 isDragOver === 'above' ? '⬆️ Add above' : 
+                 '⬇️ Add below'}
+              </div>
+            </div>
+          )}
+          
           {isEditing ? (
             <input
               ref={editInputRef}
@@ -512,6 +609,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               expandedNodes={expandedNodes}
               onToggleExpanded={onToggleExpanded}
               loadingStates={loadingStates}
+              isTreeDisabled={isTreeDisabled}
             />
           ))}
         </div>
