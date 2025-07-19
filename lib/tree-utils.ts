@@ -40,14 +40,14 @@ export class TreeUtils {
 
   static flattenTree(roots: TreeNode[]): TreeNode[] {
     const result: TreeNode[] = [];
-    
+
     const traverse = (nodes: TreeNode[]) => {
       nodes.forEach(node => {
         result.push(node);
         traverse(node.children);
       });
     };
-    
+
     traverse(roots);
     return result;
   }
@@ -61,14 +61,14 @@ export class TreeUtils {
       }
       return null;
     };
-    
+
     return traverse(roots);
   }
 
   static searchNodes(roots: TreeNode[], query: string): TreeNode[] {
     const results: TreeNode[] = [];
     const lowerQuery = query.toLowerCase();
-    
+
     const traverse = (nodes: TreeNode[]) => {
       nodes.forEach(node => {
         const matches = [
@@ -76,22 +76,22 @@ export class TreeUtils {
           node.description?.toLowerCase().includes(lowerQuery),
           node.wbsCode?.toLowerCase().includes(lowerQuery),
         ].some(Boolean);
-        
+
         if (matches) {
           results.push(node);
         }
-        
+
         traverse(node.children);
       });
     };
-    
+
     traverse(roots);
     return results;
   }
 
   static findNodePath(roots: TreeNode[], targetId: number): TreeNode[] {
     const path: TreeNode[] = [];
-    
+
     const traverse = (nodes: TreeNode[]): boolean => {
       for (const node of nodes) {
         path.push(node);
@@ -101,7 +101,7 @@ export class TreeUtils {
       }
       return false;
     };
-    
+
     traverse(roots);
     return path;
   }
@@ -112,7 +112,7 @@ export class TreeUtils {
       exportDate: new Date().toISOString(),
       nodes: roots,
     };
-    
+
     return JSON.stringify(exportData, null, 2);
   }
 }

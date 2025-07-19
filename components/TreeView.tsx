@@ -17,11 +17,13 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { BarLoader } from "react-spinners";
 import Link from 'next/link';
 import { TreeNode, TreeViewSettings } from '@/lib/types';
 import { TreeUtils } from '@/lib/tree-utils';
 import TreeNodeComponent from './TreeNode';
 import { Button } from './ui/button';
+import { ScrollArea } from './ui/scroll-area';
 
 interface TreeViewProps {
   projectId: number;
@@ -48,8 +50,37 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   const [projectNode, setProjectNode] = useState<TreeNode | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // Loading states for UI feedback
+  const [loadingStates, setLoadingStates] = useState({
+    updating: new Set<number>(),
+    deleting: new Set<number>(),
+    adding: new Set<number>(),
+    moving: new Set<number>(),
+  });
+  
+  // Global loading state for full tree operations
+  const [isTreeOperationLoading, setIsTreeOperationLoading] = useState(false);
+  
+  // Store expanded state to preserve it during updates
+  const [preservedExpandedNodes, setPreservedExpandedNodes] = useState<Set<number>>(new Set());
+
   const qc = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper functions to manage loading states
+  const addLoadingState = useCallback((type: keyof typeof loadingStates, nodeId: number) => {
+    setLoadingStates(prev => ({
+      ...prev,
+      [type]: new Set([...prev[type], nodeId])
+    }));
+  }, []);
+
+  const removeLoadingState = useCallback((type: keyof typeof loadingStates, nodeId: number) => {
+    setLoadingStates(prev => ({
+      ...prev,
+      [type]: new Set([...prev[type]].filter(id => id !== nodeId))
+    }));
+  }, []);
 
   // Fetch project data
   const { data: project, isLoading: isProjectLoading } = useQuery({
@@ -95,10 +126,14 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       setNodes([projectTreeNode]);
       setFilteredNodes([projectTreeNode]);
       
-      // Auto-expand the project node
-      setExpandedNodes(new Set([project.id]));
+      // Restore expanded state if preserved, otherwise auto-expand project node
+      if (preservedExpandedNodes.size > 0) {
+        setExpandedNodes(preservedExpandedNodes);
+      } else {
+        setExpandedNodes(new Set([project.id]));
+      }
     }
-  }, [project, treeData]);
+  }, [project, treeData, preservedExpandedNodes]);
 
   // Search functionality
   useEffect(() => {
@@ -130,7 +165,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     }
   }, [searchQuery, nodes, projectNode]);
 
-  // Mutations
+  // Mutations with loading state management
   const addNodeMutation = useMutation({
     mutationFn: async ({ parentId, name, type = 'task' }: { parentId: number | null; name: string; type?: string }) => {
       const response = await fetch('/api/nodes', {
@@ -141,8 +176,25 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       if (!response.ok) throw new Error('Failed to add node');
       return response.json();
     },
-    onSuccess: () => {
-      refetchTree();
+    onMutate: async ({ parentId }) => {
+      const targetParentId = parentId || projectId;
+      addLoadingState('adding', targetParentId);
+      setIsTreeOperationLoading(true);
+      // Preserve current expanded state
+      setPreservedExpandedNodes(new Set(expandedNodes));
+    },
+    onSuccess: (data, { parentId }) => {
+      const targetParentId = parentId || projectId;
+      removeLoadingState('adding', targetParentId);
+      refetchTree().then(() => {
+        setIsTreeOperationLoading(false);
+      });
+    },
+    onError: (error, { parentId }) => {
+      const targetParentId = parentId || projectId;
+      removeLoadingState('adding', targetParentId);
+      setIsTreeOperationLoading(false);
+      console.error('Failed to add node:', error);
     },
   });
 
@@ -156,8 +208,22 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       if (!response.ok) throw new Error('Failed to update node');
       return response.json();
     },
-    onSuccess: () => {
-      refetchTree();
+    onMutate: async ({ nodeId }) => {
+      addLoadingState('updating', nodeId);
+      setIsTreeOperationLoading(true);
+      // Preserve current expanded state
+      setPreservedExpandedNodes(new Set(expandedNodes));
+    },
+    onSuccess: (data, { nodeId }) => {
+      removeLoadingState('updating', nodeId);
+      refetchTree().then(() => {
+        setIsTreeOperationLoading(false);
+      });
+    },
+    onError: (error, { nodeId }) => {
+      removeLoadingState('updating', nodeId);
+      setIsTreeOperationLoading(false);
+      console.error('Failed to update node:', error);
     },
   });
 
@@ -169,9 +235,23 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       if (!response.ok) throw new Error('Failed to delete node');
       return response.json();
     },
-    onSuccess: () => {
-      refetchTree();
+    onMutate: async (nodeId) => {
+      addLoadingState('deleting', nodeId);
+      setIsTreeOperationLoading(true);
+      // Preserve current expanded state
+      setPreservedExpandedNodes(new Set(expandedNodes));
+    },
+    onSuccess: (data, nodeId) => {
+      removeLoadingState('deleting', nodeId);
+      refetchTree().then(() => {
+        setIsTreeOperationLoading(false);
+      });
       setSelectedNodeId(null);
+    },
+    onError: (error, nodeId) => {
+      removeLoadingState('deleting', nodeId);
+      setIsTreeOperationLoading(false);
+      console.error('Failed to delete node:', error);
     },
   });
 
@@ -185,8 +265,25 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       if (!response.ok) throw new Error('Failed to move node');
       return response.json();
     },
-    onSuccess: () => {
-      refetchTree();
+    onMutate: async ({ nodeId, targetId }) => {
+      addLoadingState('moving', nodeId);
+      addLoadingState('moving', targetId);
+      setIsTreeOperationLoading(true);
+      // Preserve current expanded state
+      setPreservedExpandedNodes(new Set(expandedNodes));
+    },
+    onSuccess: (data, { nodeId, targetId }) => {
+      removeLoadingState('moving', nodeId);
+      removeLoadingState('moving', targetId);
+      refetchTree().then(() => {
+        setIsTreeOperationLoading(false);
+      });
+    },
+    onError: (error, { nodeId, targetId }) => {
+      removeLoadingState('moving', nodeId);
+      removeLoadingState('moving', targetId);
+      setIsTreeOperationLoading(false);
+      console.error('Failed to move node:', error);
     },
   });
 
@@ -280,6 +377,17 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
     setSidebarCollapsed(prev => !prev);
   }, []);
 
+  // Enhanced selection handler with deselection support
+  const handleSelect = useCallback((nodeId: number) => {
+    setSelectedNodeId(prev => {
+      // If clicking the same node or using -1 to deselect, clear selection
+      if (prev === nodeId || nodeId === -1) {
+        return null;
+      }
+      return nodeId;
+    });
+  }, []);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -343,7 +451,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
   }
 
   return (
-    <div className="h-screen w-screen bg-gray-50 flex overflow-hidden">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Collapsible Left Sidebar */}
       <div className={`bg-white border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out ${
         sidebarCollapsed ? 'w-0' : 'w-80'
@@ -440,7 +548,7 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
       </div>
 
       {/* Main Content - Full width when sidebar collapsed */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Optional Top Bar for when sidebar is collapsed */}
         {sidebarCollapsed && (
           <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
@@ -468,36 +576,52 @@ const TreeView: React.FC<TreeViewProps> = ({ projectId }) => {
           </div>
         )}
 
-        {/* Scrollable Tree Container */}
-        <div className="flex-1 overflow-auto" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
-          <div className="p-6">
-            <div className="space-y-1">
-              {filteredNodes.map((node) => (
-                <TreeNodeComponent
-                  key={node.id}
-                  node={node}
-                  projectId={projectId}
-                  depth={0}
-                  isSelected={selectedNodeId === node.id}
-                  draggedNodeId={draggedNodeId}
-                  settings={settings}
-                  onSelect={setSelectedNodeId}
-                  onUpdate={handleUpdateNode}
-                  onDelete={handleDeleteNode}
-                  onMove={handleMoveNode}
-                  onAddChild={handleAddChild}
-                  onCopy={handleCopyNode}
-                  onCut={handleCutNode}
-                  onPaste={handlePasteNode}
-                  clipboard={clipboard}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                  expandedNodes={expandedNodes}
-                  onToggleExpanded={handleToggleExpanded}
-                />
-              ))}
+        {/* Scrollable Tree Container with ScrollArea */}
+        <div className="flex-1 relative min-h-0" style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+          {/* Full Width Loading Bar */}
+          {isTreeOperationLoading && (
+            <div className="absolute top-0 left-0 right-0 z-50">
+              <BarLoader
+                color="#3b82f6"
+                width="100%"
+                height={4}
+                loading={isTreeOperationLoading}
+              />
             </div>
-          </div>
+          )}
+          
+          <ScrollArea className={`h-full ${isTreeOperationLoading ? 'pointer-events-none opacity-60' : ''}`}>
+            <div className="p-6">
+              <div className="space-y-1">
+                {filteredNodes.map((node) => (
+                  <TreeNodeComponent
+                    key={node.id}
+                    node={node}
+                    projectId={projectId}
+                    depth={0}
+                    isSelected={selectedNodeId === node.id}
+                    draggedNodeId={draggedNodeId}
+                    settings={settings}
+                    onSelect={handleSelect}
+                    onUpdate={handleUpdateNode}
+                    onDelete={handleDeleteNode}
+                    onMove={handleMoveNode}
+                    onAddChild={handleAddChild}
+                    onCopy={handleCopyNode}
+                    onCut={handleCutNode}
+                    onPaste={handlePasteNode}
+                    clipboard={clipboard}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    expandedNodes={expandedNodes}
+                    onToggleExpanded={handleToggleExpanded}
+                    loadingStates={loadingStates}
+                    isTreeDisabled={isTreeOperationLoading}
+                  />
+                ))}
+              </div>
+            </div>
+          </ScrollArea>
         </div>
       </div>
     </div>

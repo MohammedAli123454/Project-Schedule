@@ -1,5 +1,4 @@
 'use client';
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ChevronDown,
@@ -12,6 +11,7 @@ import {
   Milestone,
   Package,
   Layers,
+  Loader2,
 } from 'lucide-react';
 import { TreeNode, TreeViewSettings } from '@/lib/types';
 
@@ -35,6 +35,14 @@ interface TreeNodeProps {
   onDragEnd: () => void;
   expandedNodes: Set<number>;
   onToggleExpanded: (nodeId: number) => void;
+  // New props for loading states
+  loadingStates?: {
+    updating: Set<number>;
+    deleting: Set<number>;
+    adding: Set<number>;
+    moving: Set<number>;
+  };
+  isTreeDisabled?: boolean;
 }
 
 const TreeNodeComponent: React.FC<TreeNodeProps> = ({
@@ -57,6 +65,13 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   onDragEnd,
   expandedNodes,
   onToggleExpanded,
+  loadingStates = {
+    updating: new Set(),
+    deleting: new Set(),
+    adding: new Set(),
+    moving: new Set(),
+  },
+  isTreeDisabled = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(node.name);
@@ -71,6 +86,13 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   const isExpanded = expandedNodes.has(node.id);
   const isDragging = draggedNodeId === node.id;
   const isProjectNode = node.id === projectId; // Check if this is the project node
+
+  // Check loading states
+  const isUpdating = loadingStates.updating.has(node.id);
+  const isDeleting = loadingStates.deleting.has(node.id);
+  const isAdding = loadingStates.adding.has(node.id);
+  const isMoving = loadingStates.moving.has(node.id);
+  const hasAnyLoading = isUpdating || isDeleting || isAdding || isMoving;
 
   const typeIcons = {
     task: FileText,
@@ -87,8 +109,8 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleEdit = () => {
-    if (isProjectNode) {
-      // Don't allow editing project name from tree view
+    if (isProjectNode || hasAnyLoading || isTreeDisabled) {
+      // Don't allow editing project name from tree view or during loading
       return;
     }
     setIsEditing(true);
@@ -109,6 +131,8 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleAddChildFromMenu = () => {
+    if (hasAnyLoading || isTreeDisabled) return;
+    
     const name = prompt('Enter task name:');
     if (name?.trim()) {
       onAddChild(node.id, name.trim());
@@ -121,8 +145,10 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleDeleteFromMenu = () => {
-    if (isProjectNode) {
-      alert('Cannot delete the project itself');
+    if (isProjectNode || hasAnyLoading || isTreeDisabled) {
+      if (isProjectNode) {
+        alert('Cannot delete the project itself');
+      }
       return;
     }
     
@@ -133,7 +159,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (isEditing || isProjectNode) return; // Don't allow dragging project node
+    if (isEditing || isProjectNode || hasAnyLoading || isTreeDisabled) return; // Don't allow dragging project node or during loading
     
     const dragData = {
       nodeId: node.id,
@@ -154,7 +180,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (isDragging) return;
+    if (isDragging || hasAnyLoading || isTreeDisabled) return;
     
     const rect = nodeRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -179,7 +205,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!isDragOver) return;
+    if (!isDragOver || hasAnyLoading || isTreeDisabled) return;
     
     try {
       const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
@@ -201,32 +227,44 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
+    if (hasAnyLoading || isTreeDisabled) return;
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
     onSelect(node.id);
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (isEditing) return;
+    if (isEditing || hasAnyLoading || isTreeDisabled) return;
     e.stopPropagation();
     onSelect(node.id);
   };
 
+  // Handle click outside to deselect
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
       }
+      
+      // Handle deselection when clicking outside the node
+      if (isSelected && nodeRef.current && !nodeRef.current.contains(e.target as Node)) {
+        // Only deselect if clicking outside any tree node
+        const clickedElement = e.target as Element;
+        const isTreeNode = clickedElement.closest('[data-tree-node]');
+        if (!isTreeNode) {
+          onSelect(-1); // Use -1 to indicate no selection
+        }
+      }
     };
 
-    if (contextMenu) {
+    if (contextMenu || isSelected) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [contextMenu]);
+  }, [contextMenu, isSelected, onSelect]);
 
   const TypeIcon = typeIcons[node.type as keyof typeof typeIcons] || FileText;
 
@@ -242,13 +280,15 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
 
       <div
         ref={nodeRef}
+        data-tree-node="true"
         className={`
           relative flex items-center group transition-all duration-200
-          ${isSelected ? 'bg-blue-50 ring-2 ring-blue-300' : 'hover:bg-gray-50'}
+          ${isSelected ? 'bg-blue-50 ring-2 ring-blue-500 shadow-md' : 'hover:bg-gray-50'}
           ${isDragging ? 'opacity-50 scale-95' : ''}
           ${isDragOver === 'inside' ? 'bg-blue-100 ring-2 ring-blue-400 ring-dashed' : ''}
-          ${settings.compactView ? 'py-2' : 'py-3'}
           ${isProjectNode ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg shadow-sm' : ''}
+          ${hasAnyLoading || isTreeDisabled ? 'opacity-75' : ''}
+          ${settings.compactView ? 'py-2' : 'py-3'}
           pl-3 pr-4 rounded-lg mx-1 my-0.5 cursor-pointer
         `}
         style={{ 
@@ -257,7 +297,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           fontSize: `${Math.max(settings.fontSize, 15)}px`,
           fontWeight: isProjectNode ? '700' : depth === 1 ? '600' : '500',
         }}
-        draggable={!isEditing && !isProjectNode}
+        draggable={!isEditing && !isProjectNode && !hasAnyLoading && !isTreeDisabled}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragOver={handleDragOver}
@@ -272,10 +312,11 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
             flex items-center justify-center w-6 h-6 rounded hover:bg-gray-200 transition-colors
             ${hasChildren ? 'text-gray-600' : 'text-transparent'}
             ${settings.compactView ? 'mr-2' : 'mr-3'}
+            ${hasAnyLoading ? 'pointer-events-none' : ''}
           `}
           onClick={(e) => {
             e.stopPropagation();
-            if (hasChildren) {
+            if (hasChildren && !hasAnyLoading) {
               onToggleExpanded(node.id);
             }
           }}
@@ -289,10 +330,17 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           )}
         </button>
 
+        {/* Loading Spinner */}
+        {hasAnyLoading && (
+          <div className="mr-3 flex items-center">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+          </div>
+        )}
+
         {/* Type Icon */}
         <TypeIcon className={`w-5 h-5 mr-3 ${
           settings.colorByType ? typeColors[node.type as keyof typeof typeColors] : 'text-gray-500'
-        } ${isProjectNode ? 'text-blue-600' : ''}`} />
+        } ${isProjectNode ? 'text-blue-600' : ''} ${hasAnyLoading ? 'opacity-50' : ''}`} />
 
         {/* Node Content - Removed WBS codes and metadata column */}
         <div className="flex-1 min-w-0">
@@ -313,6 +361,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               className="w-full px-3 py-2 text-sm border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
               onClick={(e) => e.stopPropagation()}
+              disabled={hasAnyLoading}
             />
           ) : (
             <div className="flex items-center">
@@ -321,6 +370,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
                 ${isProjectNode ? 'text-xl font-bold text-blue-900' : 
                   depth === 1 ? 'text-lg font-semibold text-gray-800' : 
                   'text-base text-gray-700'}
+                ${hasAnyLoading ? 'opacity-75' : ''}
               `}
               style={{ 
                 fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
@@ -331,9 +381,19 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               </span>
               
               {settings.showDescription && node.description && (
-                <span className="ml-3 text-sm text-gray-500 truncate" 
+                <span className={`ml-3 text-sm text-gray-500 truncate ${hasAnyLoading ? 'opacity-50' : ''}`}
                       style={{ fontFamily: "'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
                   - {node.description}
+                </span>
+              )}
+
+              {/* Loading status indicators */}
+              {hasAnyLoading && (
+                <span className="ml-3 text-xs text-blue-600 font-medium">
+                  {isUpdating && 'Updating...'}
+                  {isDeleting && 'Deleting...'}
+                  {isAdding && 'Adding...'}
+                  {isMoving && 'Moving...'}
                 </span>
               )}
             </div>
@@ -342,7 +402,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
       </div>
 
       {/* Context Menu */}
-      {contextMenu && (
+      {contextMenu && !hasAnyLoading && (
         <div
           ref={contextMenuRef}
           className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[180px]"
@@ -451,6 +511,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               onDragEnd={onDragEnd}
               expandedNodes={expandedNodes}
               onToggleExpanded={onToggleExpanded}
+              loadingStates={loadingStates}
             />
           ))}
         </div>
