@@ -5,17 +5,32 @@ import {
   integer,
   timestamp,
   varchar,
+  date,
+  decimal,
 } from 'drizzle-orm/pg-core';
 
 // Projects table
 export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  status: varchar('status', { length: 20 }).default('active'), // active, completed, archived
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
+  name: varchar('name', { length: 150 }).notNull(),
+  description: text('description').notNull(),
+  status: varchar('status', { length: 20 }).notNull(),
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull(),
+  plannedStartDate: date('planned_start_date').notNull(),
+  mustFinishBy: date('must_finish_by').notNull(),
+  projectManager: varchar('project_manager', { length: 100 }).notNull(),
+  poNumber: varchar('po_number', { length: 50 }), // nullable
+  mocNo: varchar('moc_no', { length: 50 }), // nullable
+  serviceOrderNo: varchar('service_order_no', { length: 50 }), // nullable
+  projectType: varchar('project_type', { length: 30 }).notNull(),
+  clientName: varchar('client_name', { length: 100 }).notNull(),
+  priority: varchar('priority', { length: 20 }), // nullable
+  budget: decimal('budget', { precision: 14, scale: 2 }).notNull(),
+  actualFinishDate: date('actual_finish_date'), // nullable
+  awardedValue: decimal('awarded', { precision: 14, scale: 2 }).notNull(),
 });
+
 
 // WBS Nodes table (self-referencing)
 let wbsNodes: any; // <-- Don't annotate with pgTable type, or just omit type (preferred)
